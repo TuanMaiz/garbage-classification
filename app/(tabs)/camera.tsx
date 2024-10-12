@@ -1,30 +1,30 @@
-import { ThemedView } from "@/components/ThemedView";
-import Ionicons from "@expo/vector-icons/Ionicons";
-import { CameraView, CameraType, useCameraPermissions } from "expo-camera";
-import { useNavigation } from "expo-router";
-import React, { useEffect, useRef } from "react";
-import { useState } from "react";
-import { Button, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import * as tf from "@tensorflow/tfjs";
-import { cameraWithTensors } from "@tensorflow/tfjs-react-native";
-import Canvas, { CanvasRenderingContext2D } from "react-native-canvas";
-import * as mobilenet from "@tensorflow-models/mobilenet";
-const TensorCamera = cameraWithTensors(CameraView);
+import { ThemedView } from '@/components/ThemedView';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
+import { useNavigation } from 'expo-router';
+import React, { useEffect, useRef } from 'react';
+import { useState } from 'react';
+import { Button, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import * as tf from '@tensorflow/tfjs'
+import { cameraWithTensors } from '@tensorflow/tfjs-react-native'
+import Canvas, { CanvasRenderingContext2D } from 'react-native-canvas';
+
 
 export default function App() {
-  const [facing, setFacing] = useState<CameraType>("back");
+  const [facing, setFacing] = useState<CameraType>('back');
   const [permission, requestPermission] = useCameraPermissions();
-  const canvasRef = useRef<Canvas>(null);
+  const canvasRef = useRef<Canvas>()
   const [isTfReady, setIsTfReady] = useState<boolean>(false);
   const [on, setOn] = useState<boolean>(false);
-  const [model, setModel] = useState<mobilenet.MobileNet | null>(null);
+
   useEffect(() => {
-    async function setup() {
+    async function setup()
+    {
       await tf.ready();
       setIsTfReady(true);
     }
     setup();
-  }, []);
+  }, [])
 
   if (!permission) {
     // Camera permissions are still loading.
@@ -35,41 +35,30 @@ export default function App() {
     // Camera permissions are not granted yet.
     return (
       <View style={styles.container}>
-        <Text style={styles.message}>
-          We need your permission to show the camera
-        </Text>
+        <Text style={styles.message}>We need your permission to show the camera</Text>
         <Button onPress={requestPermission} title="Bật camera" />
       </View>
     );
   }
 
   function toggleCameraFacing() {
-    setFacing((current) => (current === "back" ? "front" : "back"));
+    setFacing(current => (current === 'back' ? 'front' : 'back'));
   }
   const handleCameraStream = (images: IterableIterator<tf.Tensor3D>) => {
     const loop = async () => {
       if (canvasRef.current) {
         const nextImageTensor = images.next().value;
-        if (model && nextImageTensor) {
-          // const predictions = await model.classify(nextImageTensor);
-          // console.log(predictions);
-
-          const ctx = canvasRef.current.getContext("2d");
+        if (nextImageTensor) {
+          // Perform AI detection here
+          // For example purposes, we'll just draw a rectangle
+          const ctx = canvasRef.current.getContext('2d');
           if (ctx) {
-            ctx.clearRect(
-              0,
-              0,
-              canvasRef.current.width,
-              canvasRef.current.height
-            );
-            ctx.strokeStyle = "red";
+            ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+            ctx.strokeStyle = 'red';
             ctx.lineWidth = 2;
             ctx.strokeRect(50, 50, 100, 100);
           }
           tf.dispose(nextImageTensor);
-        } 
-        else {
-          throw new Error("Model or nextImageTensor is not ready");
         }
       }
       requestAnimationFrame(loop);
@@ -79,42 +68,28 @@ export default function App() {
 
   return (
     <View style={styles.container}>
-      {on ? (
-        <View style={styles.container}>
-          {isTfReady && (
-            <TensorCamera
-              style={styles.camera}
-              facing={facing}
-              onReady={handleCameraStream}
-              resizeHeight={200}
-              resizeWidth={152}
-              resizeDepth={3}
-              autorender={true}
-              useCustomShadersToResize={false}
-              cameraTextureWidth={0}
-              cameraTextureHeight={0}
-            />
-          )}
-          <Canvas ref={canvasRef} style={StyleSheet.absoluteFill} />
-          <View style={styles.buttonContainer}>
-            <TouchableOpacity
-              style={styles.button}
-              onPress={toggleCameraFacing}
-            >
-              <Text style={styles.text}>Flip Camera</Text>
-            </TouchableOpacity>
+      {
+        on ? (
+          <View style={styles.container}>
+            <CameraView style={styles.camera} facing={facing}>
+              <TouchableOpacity style={styles.backButton} onPress={() => setOn(false)}>
+                <Ionicons name="arrow-back" size={24} color="white" />
+              </TouchableOpacity>
+              <View style={styles.buttonContainer}>
+                <TouchableOpacity style={styles.button} onPress={toggleCameraFacing}>
+                  <Text style={styles.text}>Xoay Camera</Text>
+                </TouchableOpacity>
+              </View>
+            </CameraView>
           </View>
-        </View>
-      ) : (
-        <ThemedView style={styles.buttonContainer}>
-          <TouchableOpacity
-            style={styles.buttonTurnOnCamera}
-            onPress={() => setOn(true)}
-          >
-            <Text style={styles.text}>Bật camera</Text>
-          </TouchableOpacity>
-        </ThemedView>
-      )}
+        ) : (
+          <ThemedView style={styles.buttonContainer}>
+            <TouchableOpacity style={styles.buttonTurnOnCamera} onPress={() => setOn(true)}>
+              <Text style={styles.text}>Bật camera</Text>
+            </TouchableOpacity>
+          </ThemedView>
+        )
+      }
     </View>
   );
 }
@@ -122,10 +97,10 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: "center",
+    justifyContent: 'center',
   },
   message: {
-    textAlign: "center",
+    textAlign: 'center',
     paddingBottom: 10,
   },
   camera: {
@@ -133,35 +108,35 @@ const styles = StyleSheet.create({
   },
   buttonContainer: {
     flex: 1,
-    flexDirection: "row",
-    backgroundColor: "transparent",
+    flexDirection: 'row',
+    backgroundColor: 'transparent',
     margin: 64,
   },
   button: {
     flex: 1,
-    alignSelf: "flex-end",
-    alignItems: "center",
+    alignSelf: 'flex-end',
+    alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 999,
-    backgroundColor: "white",
+    backgroundColor: 'white',
   },
   buttonTurnOnCamera: {
     flex: 1,
-    alignSelf: "center",
-    alignItems: "center",
+    alignSelf: 'center',
+    alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 999,
-    backgroundColor: "lime",
+    backgroundColor: 'lime',
   },
   text: {
     fontSize: 24,
-    fontWeight: "semibold",
-    color: "#0E233B",
+    fontWeight: 'semibold',
+    color: '#0E233B',
   },
   backButton: {
-    position: "absolute",
+    position: 'absolute',
     top: 60,
     left: 30,
     zIndex: 10,
