@@ -28,19 +28,27 @@ export default function App() {
   Platform.OS === 'ios'
     ? (textureDims = { height: 1920, width: 1080 })
     : (textureDims = { height: 1200, width: 1600 });
-  useEffect(() => {
-    async function setup()
-    {
-      await tf.ready();
-      const model = await mobilenet.load();
-      setModel(model);
-      setIsTfReady(true);
-    }
-    setup();
-    return () => {
-      setOn(false)
-    }
-  }, [])
+    useEffect(() => {
+      console.log('Component mounted');
+      async function setup() {
+        try {
+          console.log('Setting up TensorFlow.js');
+          await tf.ready();
+          console.log('TensorFlow.js ready');
+          const model = await mobilenet.load();
+          console.log('Model loaded');
+          setModel(model);
+          setIsTfReady(true);
+        } catch (error) {
+          console.error('Error during setup:', error);
+        }
+      }
+      setup();
+      return () => {
+        console.log('Component unmounting');
+        setOn(false);
+      }
+    }, []);
 
   if (!permission) {
     // Camera permissions are still loading.
@@ -141,7 +149,40 @@ export default function App() {
   return (
     <View style={styles.container}>
       {
-        on ? (
+        !on ? (
+          <ThemedView style={styles.buttonContainer}>
+            <TouchableOpacity style={styles.buttonTurnOnCamera} onPress={() => setOn(true)}>
+              <Text style={styles.text}>Bật camera</Text>
+            </TouchableOpacity>
+          </ThemedView>
+        ) : 
+        isTfReady && model ? (
+          <View style={styles.container}>
+            <TensorCamera
+            // Standard Camera props
+            style={styles.camera}
+            facing={facing}
+            // Tensor related props
+            cameraTextureHeight={textureDims.height}
+            cameraTextureWidth={textureDims.width}
+            resizeHeight={200}
+            resizeWidth={152}
+            resizeDepth={3}
+            onReady={handleCameraStream}
+            autorender={true}
+            useCustomShadersToResize={false}
+          />
+            <Canvas style={styles.canvas} ref={handleCanvas} />
+            <TouchableOpacity style={styles.backButton} onPress={() => setOn(false)}>
+                <Ionicons name="arrow-back" size={24} color="white" />
+              </TouchableOpacity>
+          </View>
+        ) : (
+          <Text style={{textAlign: 'center', color: 'white'}}>Loading...</Text> 
+        )
+      }
+      {/* {
+        on && isTfReady ? (
           <View style={styles.container}>
             <TensorCamera
             // Standard Camera props
@@ -170,7 +211,7 @@ export default function App() {
             </TouchableOpacity>
           </ThemedView>
         )
-      }
+      } */}
     </View>
   );
 }
