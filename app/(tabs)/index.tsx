@@ -22,9 +22,9 @@ export default function HomeScreen() {
         <HelloWave />
       </ThemedView>
       <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Ứng dụng phân loại rác thải</ThemedText>
+        <ThemedText type="subtitle">Garbage classification app</ThemedText>
         <ThemedText>
-          Phát triển bởi nhóm 8.
+          Developed by group 8.
         </ThemedText>
       </ThemedView>
 

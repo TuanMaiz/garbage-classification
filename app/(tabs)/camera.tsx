@@ -1,273 +1,137 @@
-import { ThemedView } from '@/components/ThemedView';
-import Ionicons from '@expo/vector-icons/Ionicons';
-import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
-import { useNavigation } from 'expo-router';
-import React, { useEffect, useRef } from 'react';
-import { useState } from 'react';
-import { Button, Dimensions, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import * as tf from '@tensorflow/tfjs'
-import { cameraWithTensors } from '@tensorflow/tfjs-react-native'
-import * as mobilenet from '@tensorflow-models/mobilenet'
-import Canvas, { CanvasRenderingContext2D } from 'react-native-canvas';
+import React, {useEffect, useState} from 'react';
+import {ActivityIndicator, StyleSheet, Text, View} from 'react-native';
+import {Camera, useCameraDevice, useCameraPermission, useFrameProcessor} from 'react-native-vision-camera';
+import {TensorflowModel, useTensorflowModel} from 'react-native-fast-tflite';
+import {useResizePlugin} from 'vision-camera-resize-plugin';
+import {useFocusEffect} from 'expo-router';
+import {Worklets} from "react-native-worklets-core";
 
-const TensorCamera = cameraWithTensors(CameraView);
-const { width, height } = Dimensions.get('window');
+const classLabels = ['trash', 'glass', 'paper', 'metal', 'plastic', 'cardboard']; // Add your class labels here
+
 
 export default function App() {
-  const [facing, setFacing] = useState<CameraType>('back');
-  const [permission, requestPermission] = useCameraPermissions();
-  const canvasRef = useRef<Canvas>()
-  const [isTfReady, setIsTfReady] = useState<boolean>(false);
-  const [on, setOn] = useState<boolean>(false);
+    const {hasPermission, requestPermission} = useCameraPermission();
+    const device = useCameraDevice('back');
 
-  const [model, setModel] = useState<mobilenet.MobileNet>();
-  const canvas = useRef<Canvas>();
-  let context = useRef<CanvasRenderingContext2D>();
+    // Load the TensorFlow Lite model
+    const model = useTensorflowModel(require('../../assets/mobilenet_transfer_model_quantized.tflite'));
+    const [actualModel, setActualModel] = useState<TensorflowModel | undefined>(undefined);
+    const [predictedClass, setPredictedClass] = useState<string | null>(null);
+    const [confidence, setConfidence] = useState<number | null>(null);
 
-  let textureDims;
-  Platform.OS === 'ios'
-    ? (textureDims = { height: 1920, width: 1080 })
-    : (textureDims = { height: 1200, width: 1600 });
     useEffect(() => {
-      console.log('Component mounted');
-      async function setup() {
-        try {
-          console.log('Setting up TensorFlow.js');
-          await tf.ready();
-          console.log('TensorFlow.js ready');
-          const model = await mobilenet.load();
-          console.log('Model loaded');
-          setModel(model);
-          setIsTfReady(true);
-        } catch (error) {
-          console.error('Error during setup:', error);
+        if (actualModel == null) return;
+        console.log(`Model loaded!`);
+    }, [actualModel]);
+
+    // Load the model once it's ready
+    useEffect(() => {
+        if (model.state === 'loaded') {
+            setActualModel(model.model);
         }
-      }
-      setup();
-      return () => {
-        console.log('Component unmounting');
-        setOn(false);
-      }
-    }, []);
+    }, [model]);
 
-  if (!permission) {
-    // Camera permissions are still loading.
-    return <View />;
-  }
+    const {resize} = useResizePlugin();
 
-  if (!permission.granted) {
-    // Camera permissions are not granted yet.
-    return (
-      <View style={styles.container}>
-        <Text style={styles.message}>We need your permission to show the camera</Text>
-        <Button onPress={requestPermission} title="Bật camera" />
-      </View>
+    const assignPredictedClass = Worklets.createRunOnJS((className: string | null) => {
+        setPredictedClass(className)
+    })
+
+    const assignConfidence = Worklets.createRunOnJS((value: number | null) => {
+        setConfidence(value)
+    })
+
+    const frameProcessor = useFrameProcessor(
+        (frame) => {
+            'worklet';
+            if (actualModel == undefined) {
+                return; // Wait for the model to load
+            }
+
+            const resized = resize(frame, {
+                scale: {
+                    width: 224,
+                    height: 224
+                },
+                pixelFormat: 'rgb',
+                dataType: 'float32'
+            });
+            const result = actualModel.runSync([resized]);
+
+            // Assuming the model output is a classification probability distribution
+            const outputData = result[0];  // Adjust if your model returns multiple outputs
+            const maxConfidence = Math.max(...outputData);  // Get the highest confidence score
+            const predictedClassIndex = outputData.indexOf(maxConfidence as never);  // Get the index of max confidence
+            const confidenceScore = maxConfidence;  // Use the max confidence
+            assignPredictedClass(classLabels[predictedClassIndex]);
+            assignConfidence(confidenceScore);
+        },
+        [actualModel]
     );
-  }
 
-  function toggleCameraFacing() {
-    setFacing(current => (current === 'back' ? 'front' : 'back'));
-  }
-  const handleCanvas = async (can: Canvas) => {
-    if (can) {
-      can.width = width;
-      can.height = height;
-      const ctx: CanvasRenderingContext2D = can.getContext('2d');
-      context.current = ctx;
-      ctx.strokeStyle = 'red';
-      ctx.fillStyle = 'red';
-      ctx.lineWidth = 3;
-      canvas.current = can;
-    }
-  };
-  function drawRectangle(
-    predictions: any,
-    nextImageTensor: any
-  ) {
-    if (!context.current || !canvas.current) {
-      console.log('no context or canvas');
-      return;
-    }
+    useFocusEffect(
+        React.useCallback(() => {
+            setActualModel(model.model);  // Reload model when screen is focused
 
-    console.log(predictions);
+            return () => {
+                setActualModel(undefined);  // Clean up the model when screen is unfocused
+            };
+        }, [model.model])
+    );
 
-    // to match the size of the camera preview
-    const scaleWidth = width / nextImageTensor.shape[1];
-    const scaleHeight = height / nextImageTensor.shape[0];
+    // Request camera permission on component mount
+    useEffect(() => {
+        (async () => {
+            await requestPermission();
+        })();
+    }, [requestPermission]);
 
-    const flipHorizontal = Platform.OS === 'ios' ? false : true;
+    return (
+        <View style={styles.container}>
+            {hasPermission && device != null ? (
+                <Camera
+                    device={device}
+                    style={StyleSheet.absoluteFill}
+                    isActive={true}
+                    frameProcessor={frameProcessor}
+                    pixelFormat="yuv"
+                />
+            ) : (
+                <Text>No Camera available.</Text>
+            )}
 
-    // We will clear the previous prediction
-    context.current.clearRect(0, 0, width, height);
+            {model.state === 'loading' && <ActivityIndicator size="small" color="white"/>}
 
-    // Draw the rectangle for each prediction
-    for (const prediction of predictions) {
-      const [x, y, width, height] = prediction.bbox;
+            {model.state === 'error' && <Text>Failed to load model! {model.error.message}</Text>}
 
-      // Scale the coordinates based on the ratios calculated
-      const boundingBoxX = flipHorizontal
-        ? canvas.current.width - x * scaleWidth - width * scaleWidth
-        : x * scaleWidth;
-      const boundingBoxY = y * scaleHeight;
+            {predictedClass && confidence !== null && (
+                <View style={styles.resultContainer}>
+                    <Text style={styles.resultText}>
+                        Predicted Class: {predictedClass} with Confidence: {(confidence * 100).toFixed(2)}%
+                    </Text>
+                </View>
+            )}
 
-      // Draw the bounding box.
-      context.current.strokeRect(
-        boundingBoxX,
-        boundingBoxY,
-        width * scaleWidth,
-        height * scaleHeight
-      );
-      // Draw the label
-      context.current.fillText(
-        prediction.class,
-        boundingBoxX - 5,
-        boundingBoxY - 5
-      );
-    }
-  }
-  function handleCameraStream(images: any) {
-    console.log('handleCameraStream');
-    const loop = async () => {
-      const nextImageTensor = images.next().value;
-      console.log('looping')
-      // if (!model || !nextImageTensor) throw new Error('no model');
-
-      // model
-      //   .classify(nextImageTensor)
-      //   .then((predictions) => {
-      //     drawRectangle(predictions, nextImageTensor);
-      //   })
-      //   .catch((err) => {
-      //     console.log(err);
-      //   });
-
-      requestAnimationFrame(loop);
-    };
-    loop();
-  }
-
-  return (
-    <View style={styles.container}>
-      {
-        !on ? (
-          <ThemedView style={styles.buttonContainer}>
-            <TouchableOpacity style={styles.buttonTurnOnCamera} onPress={() => setOn(true)}>
-              <Text style={styles.text}>Bật camera</Text>
-            </TouchableOpacity>
-          </ThemedView>
-        ) : 
-        isTfReady && model ? (
-          <View style={styles.container}>
-            <TensorCamera
-            // Standard Camera props
-            style={styles.camera}
-            facing={facing}
-            // Tensor related props
-            cameraTextureHeight={textureDims.height}
-            cameraTextureWidth={textureDims.width}
-            resizeHeight={200}
-            resizeWidth={152}
-            resizeDepth={3}
-            onReady={handleCameraStream}
-            autorender={true}
-            useCustomShadersToResize={false}
-          />
-            <Canvas style={styles.canvas} ref={handleCanvas} />
-            <TouchableOpacity style={styles.backButton} onPress={() => setOn(false)}>
-                <Ionicons name="arrow-back" size={24} color="white" />
-              </TouchableOpacity>
-          </View>
-        ) : (
-          <Text style={{textAlign: 'center', color: 'white'}}>Loading...</Text> 
-        )
-      }
-      {/* {
-        on && isTfReady ? (
-          <View style={styles.container}>
-            <TensorCamera
-            // Standard Camera props
-            style={styles.camera}
-            facing={facing}
-            // Tensor related props
-            cameraTextureHeight={textureDims.height}
-            cameraTextureWidth={textureDims.width}
-            resizeHeight={200}
-            resizeWidth={152}
-            resizeDepth={3}
-            onReady={handleCameraStream}
-            autorender={true}
-            useCustomShadersToResize={false}
-          />
-            <Canvas style={styles.canvas} ref={handleCanvas} />
-            <TouchableOpacity style={styles.backButton} onPress={() => setOn(false)}>
-                <Ionicons name="arrow-back" size={24} color="white" />
-              </TouchableOpacity>
-          </View>
-          
-        ) : (
-          <ThemedView style={styles.buttonContainer}>
-            <TouchableOpacity style={styles.buttonTurnOnCamera} onPress={() => setOn(true)}>
-              <Text style={styles.text}>Bật camera</Text>
-            </TouchableOpacity>
-          </ThemedView>
-        )
-      } */}
-    </View>
-  );
+        </View>
+    );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  message: {
-    textAlign: 'center',
-    paddingBottom: 10,
-  },
-  camera: {
-    flex: 1,
-  },
-  buttonContainer: {
-    flex: 1,
-    flexDirection: 'row',
-    backgroundColor: 'transparent',
-    margin: 64,
-  },
-  button: {
-    flex: 1,
-    alignSelf: 'flex-end',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 999,
-    backgroundColor: 'white',
-    padding: 10
-  },
-  buttonTurnOnCamera: {
-    flex: 1,
-    alignSelf: 'center',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 999,
-    backgroundColor: 'lime',
-  },
-  text: {
-    fontSize: 24,
-    fontWeight: 'semibold',
-    color: '#0E233B',
-  },
-  backButton: {
-    position: 'absolute',
-    top: 60,
-    left: 30,
-    zIndex: 1000,
-  },
-  canvas: {
-    position: 'absolute',
-    zIndex: 100,
-    width: '100%',
-    height: '100%',
-  },
+    container: {
+        flex: 1,
+        justifyContent: 'center'
+    },
+    resultContainer: {
+        position: 'absolute',
+        bottom: 20,
+        width: '100%',
+        alignItems: 'center'
+    },
+    resultText: {
+        fontSize: 18,
+        color: 'white',
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        padding: 10,
+        borderRadius: 5
+    }
 });
